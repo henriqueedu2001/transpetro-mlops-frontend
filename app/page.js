@@ -32,7 +32,7 @@ export default function Home() {
   const fetchJobs = async () => {
     setIsLoadingJobs(true);
     try {
-      const res = await fetch(`${API_BASE}/api/jobs/`);
+      const res = await fetch(`${API_BASE}/jobs/`);
       if (!res.ok) throw new Error('Erro ao buscar jobs');
       const data = await res.json();
       setJobs(data);
@@ -65,7 +65,7 @@ export default function Home() {
     formData.append('file', datasetFile);
 
     try {
-      const res = await fetch(`${API_BASE}/api/trainings/`, {
+      const res = await fetch(`${API_BASE}/trainings/`, {
         method: 'POST',
         body: formData,
       });
@@ -77,6 +77,7 @@ export default function Home() {
 
       const data = await res.json();
       setSubmitMessage(`Treinamento criado com sucesso! Train ID: ${data.train_id}`);
+      setDownloadTrainId(data.train_id);
       // Limpa o campo de arquivo
       setDatasetFile(null);
       document.getElementById('fileInput').value = '';
@@ -113,18 +114,18 @@ export default function Home() {
   };
 
   const downloadZip = (trainId) => {
-    const url = `${API_BASE}/api/trainings/${trainId}/download/zip`;
+    const url = `${API_BASE}/trainings/${trainId}/download/zip`;
     downloadFile(url, `train_${trainId}_output.zip`);
   };
 
   const downloadModel = (trainId) => {
-    const url = `${API_BASE}/api/trainings/${trainId}/download/model`;
+    const url = `${API_BASE}/trainings/${trainId}/download/model`;
     downloadFile(url, `train_${trainId}_best.pt`);
   };
 
   const downloadMetrics = async (trainId) => {
     try {
-      const res = await fetch(`${API_BASE}/api/trainings/${trainId}/metrics`);
+      const res = await fetch(`${API_BASE}/trainings/${trainId}/metrics`);
       if (!res.ok) throw new Error('Erro ao buscar métricas');
       const metrics = await res.json();
       const blob = new Blob([JSON.stringify(metrics, null, 2)], { type: 'application/json' });
@@ -237,9 +238,6 @@ export default function Home() {
                   <th>Projeto</th>
                   <th>Proprietário</th>
                   <th>Status</th>
-                  <th>Épocas</th>
-                  <th>Batch</th>
-                  <th>Workers</th>
                   <th>Criado em</th>
                   <th>Agendado</th>
                   <th>Finalizado</th>
@@ -255,9 +253,6 @@ export default function Home() {
                     <td>{job.project_name}</td>
                     <td>{job.project_owner}</td>
                     <td>{renderJobStatus(job.status)}</td>
-                    <td>{job.epochs}</td>
-                    <td>{job.batch}</td>
-                    <td>{job.workers}</td>
                     <td>{new Date(job.created_at).toLocaleString()}</td>
                     <td>{job.scheduled_at ? new Date(job.scheduled_at).toLocaleString() : '-'}</td>
                     <td>{job.finished_at ? new Date(job.finished_at).toLocaleString() : '-'}</td>
