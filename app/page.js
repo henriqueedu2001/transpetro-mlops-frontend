@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import './styles.css'; // CSS importado
+import './styles.css';
 
 const API_BASE = 'http://localhost:8000';
 
@@ -10,7 +10,7 @@ export default function Home() {
   const [trainName, setTrainName] = useState('');
   const [projectName, setProjectName] = useState('');
   const [projectOwner, setProjectOwner] = useState('');
-  const [epochs, setEpochs] = useState(100);
+  const [epochs, setEpochs] = useState(10);
   const [batch, setBatch] = useState(16);
   const [workers, setWorkers] = useState(8);
   const [datasetFile, setDatasetFile] = useState(null);
@@ -19,28 +19,31 @@ export default function Home() {
 
   // --- Estado dos Jobs ---
   const [jobs, setJobs] = useState([]);
-  const [isLoadingJobs, setIsLoadingJobs] = useState(false);
 
   // --- Estado do Download por ID ---
   const [downloadTrainId, setDownloadTrainId] = useState('');
 
-  // --- Buscar Jobs ao montar ---
+  // --- Buscar Jobs ao montar e a cada 1 segundo ---
   useEffect(() => {
+    // Busca inicial
     fetchJobs();
-  }, []);
+
+    // Configura o polling a cada 1s
+    const interval = setInterval(fetchJobs, 1000);
+
+    // Limpa o intervalo ao desmontar o componente
+    return () => clearInterval(interval);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchJobs = async () => {
-    setIsLoadingJobs(true);
     try {
       const res = await fetch(`${API_BASE}/jobs/`);
       if (!res.ok) throw new Error('Erro ao buscar jobs');
       const data = await res.json();
       setJobs(data);
     } catch (error) {
-      console.error(error);
-      alert('Falha ao carregar a lista de jobs.');
-    } finally {
-      setIsLoadingJobs(false);
+      console.error('Erro no polling:', error);
+      // Opcional: exibir erro silenciosamente, mas não vamos spamar alerts
     }
   };
 
@@ -81,8 +84,7 @@ export default function Home() {
       // Limpa o campo de arquivo
       setDatasetFile(null);
       document.getElementById('fileInput').value = '';
-      // Atualiza a lista de jobs
-      await fetchJobs();
+      // A lista de jobs será atualizada automaticamente pelo polling
     } catch (error) {
       console.error(error);
       setSubmitMessage(`Erro: ${error.message}`);
@@ -114,12 +116,12 @@ export default function Home() {
   };
 
   const downloadZip = (trainId) => {
-    const url = `${API_BASE}/trainings/${trainId}/download/zip`;
+    const url = `${API_BASE}/downloads/zip?train_id=${trainId}`;
     downloadFile(url, `train_${trainId}_output.zip`);
   };
 
   const downloadModel = (trainId) => {
-    const url = `${API_BASE}/trainings/${trainId}/download/model`;
+    const url = `${API_BASE}/downloads/model?train_id=${trainId}`;
     downloadFile(url, `train_${trainId}_best.pt`);
   };
 
@@ -140,20 +142,6 @@ export default function Home() {
       console.error(err);
       alert('Erro ao baixar as métricas.');
     }
-  };
-
-  const handleDownloadById = (e) => {
-    e.preventDefault();
-    if (!downloadTrainId) {
-      alert('Por favor, informe um Train ID.');
-      return;
-    }
-    // Abre um submenu ou apenas baixa todos? Vamos baixar o ZIP por padrão, mas disponibilizamos botões.
-    // Na área de download, já temos os botões específicos, então apenas focamos nela.
-    // Vamos apenas exibir os botões para o ID digitado.
-    // Para simplificar, vou apenas chamar a função que baixa o zip, mas vou criar um estado para exibir ações.
-    // Melhor: vou apenas rolar até a área de download e preencher o campo.
-    alert(`Use os botões abaixo para o Train ID ${downloadTrainId}.`);
   };
 
   // --- Renderização da Tabela de Jobs ---
@@ -221,9 +209,7 @@ export default function Home() {
       <section className="card">
         <div className="section-header">
           <h2>Status dos Jobs</h2>
-          <button className="btn-secondary" onClick={fetchJobs} disabled={isLoadingJobs}>
-            {isLoadingJobs ? '🔄 Atualizando...' : '🔄 Atualizar'}
-          </button>
+          {/* Botão de atualizar removido – o polling automático cuida disso */}
         </div>
         {jobs.length === 0 ? (
           <p>Nenhum job encontrado. Inicie um treinamento!</p>
@@ -259,9 +245,9 @@ export default function Home() {
                     <td>
                       {job.status === 'finished' && (
                         <div className="action-buttons">
-                          <button className="btn-download" onClick={() => downloadZip(job.train_id)} title="Baixar ZIP"></button>
-                          <button className="btn-download" onClick={() => downloadModel(job.train_id)} title="Baixar Modelo (.pt)"></button>
-                          <button className="btn-download" onClick={() => downloadMetrics(job.train_id)} title="Baixar Métricas"></button>
+                          <button className="btn-download" onClick={() => downloadZip(job.train_id)} title="Baixar ZIP">📦</button>
+                          <button className="btn-download" onClick={() => downloadModel(job.train_id)} title="Baixar Modelo (.pt)">🤖</button>
+                          <button className="btn-download" onClick={() => downloadMetrics(job.train_id)} title="Baixar Métricas">📊</button>
                         </div>
                       )}
                       {job.status !== 'finished' && <span className="no-action">-</span>}
@@ -286,9 +272,9 @@ export default function Home() {
             onChange={(e) => setDownloadTrainId(e.target.value)}
           />
           <div className="download-actions">
-            <button className="btn-primary" onClick={() => downloadZip(downloadTrainId)}>Baixar ZIP</button>
-            <button className="btn-primary" onClick={() => downloadModel(downloadTrainId)}>Baixar Modelo (.pt)</button>
-            <button className="btn-primary" onClick={() => downloadMetrics(downloadTrainId)}>Baixar Métricas</button>
+            <button className="btn-primary" onClick={() => downloadZip(downloadTrainId)}>📦 Baixar ZIP</button>
+            <button className="btn-primary" onClick={() => downloadModel(downloadTrainId)}>🤖 Baixar Modelo (.pt)</button>
+            <button className="btn-primary" onClick={() => downloadMetrics(downloadTrainId)}>📊 Baixar Métricas</button>
           </div>
         </div>
         <p className="hint">* Certifique-se de que o Train ID existe e o job foi finalizado.</p>
@@ -300,13 +286,3 @@ export default function Home() {
     </div>
   );
 }
-
-// export default function Home() {
-//   return (
-//     <div>
-//       <main>
-//         <h1>TRANSPETRO ML OPS TOOL</h1>
-//       </main>
-//     </div>
-//   );
-// }
