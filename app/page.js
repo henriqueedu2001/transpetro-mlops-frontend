@@ -1,288 +1,333 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import './styles.css';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+const FALLBACK_MODELS = [
+  { id: 'yolov8', label: 'YOLOv8', sizes: ['n', 's', 'm', 'l', 'x'] },
+  { id: 'yolo11', label: 'YOLO11', sizes: ['n', 's', 'm', 'l', 'x'] },
+  { id: 'yolo12', label: 'YOLO12', sizes: ['n', 's', 'm', 'l', 'x'] },
+  { id: 'yolo26', label: 'YOLO26', sizes: ['n', 's', 'm', 'l', 'x'] },
+];
+
+const INITIAL_CONFIG = {
+  model_version: 'yolov8', model_size: 'n', epochs: 10, batch: 16, workers: 8,
+  imgsz: 640, patience: 100, optimizer: 'auto', lr0: 0.01, lrf: 0.01,
+  momentum: 0.937, weight_decay: 0.0005, warmup_epochs: 3,
+  cos_lr: false, close_mosaic: 10, seed: 0, deterministic: true, device: '0',
+};
+
+const STATUS = {
+  queued: { label: 'Na fila', className: 'status-queued' },
+  running: { label: 'Executando', className: 'status-running' },
+  succeeded: { label: 'Concluído', className: 'status-succeeded' },
+  failed: { label: 'Falhou', className: 'status-failed' },
+  cancelled: { label: 'Cancelado', className: 'status-cancelled' },
+};
+
+function Field({ label, name, value, onChange, type = 'number', ...props }) {
+  return (
+    <div className="form-group">
+      <label htmlFor={name}>{label}</label>
+      <input id={name} name={name} type={type} value={value} onChange={onChange} {...props} />
+    </div>
+  );
+}
 
 export default function Home() {
-  // --- Estado do Formulário ---
-  const [trainName, setTrainName] = useState('');
-  const [projectName, setProjectName] = useState('');
-  const [projectOwner, setProjectOwner] = useState('');
-  const [epochs, setEpochs] = useState(10);
-  const [batch, setBatch] = useState(16);
-  const [workers, setWorkers] = useState(8);
+  const [metadata, setMetadata] = useState({ train_name: '', project_name: '', project_owner: '' });
+  const [config, setConfig] = useState(INITIAL_CONFIG);
+  const [models, setModels] = useState(FALLBACK_MODELS);
   const [datasetFile, setDatasetFile] = useState(null);
+  const [argsYaml, setArgsYaml] = useState(null);
+  const [jobs, setJobs] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState('');
-
-  // --- Estado dos Jobs ---
-  const [jobs, setJobs] = useState([]);
-
-  // --- Estado do Download por ID ---
+  const [apiWarning, setApiWarning] = useState('');
   const [downloadTrainId, setDownloadTrainId] = useState('');
 
-  // --- Buscar Jobs ao montar e a cada 1 segundo ---
-  useEffect(() => {
-    // Busca inicial
-    fetchJobs();
+  const selectedModel = useMemo(
+    () => models.find((model) => model.id === config.model_version) || models[0],
+    [models, config.model_version],
+  );
 
-    // Configura o polling a cada 1s
-    const interval = setInterval(fetchJobs, 1000);
-
-    // Limpa o intervalo ao desmontar o componente
-    return () => clearInterval(interval);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const fetchJobs = async () => {
+  const fetchJobs = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE}/jobs/`);
-      if (!res.ok) throw new Error('Erro ao buscar jobs');
-      const data = await res.json();
-      setJobs(data);
+      const response = await fetch(`${API_BASE}/jobs/`);
+      if (!response.ok) throw new Error('Não foi possível buscar os jobs.');
+      setJobs(await response.json());
+      setApiWarning('');
     } catch (error) {
-      console.error('Erro no polling:', error);
-      // Opcional: exibir erro silenciosamente, mas não vamos spamar alerts
+      setApiWarning('API indisponível; a lista será atualizada assim que a conexão voltar.');
     }
+  }, []);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/models`)
+      .then((response) => response.ok ? response.json() : Promise.reject())
+      .then((data) => setModels(data.models))
+      .catch(() => setModels(FALLBACK_MODELS));
+    fetchJobs();
+    const interval = setInterval(fetchJobs, 3000);
+    return () => clearInterval(interval);
+  }, [fetchJobs]);
+
+  const updateMetadata = (event) => {
+    setMetadata((current) => ({ ...current, [event.target.name]: event.target.value }));
   };
 
-  // --- Envio do Treinamento ---
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const updateConfig = (event) => {
+    const { name, type, checked, value } = event.target;
+    setConfig((current) => ({
+      ...current,
+      [name]: type === 'checkbox' ? checked : type === 'number' ? Number(value) : value,
+    }));
+  };
+
+  const handleModelChange = (event) => {
+    const model = models.find((item) => item.id === event.target.value);
+    setConfig((current) => ({ ...current, model_version: model.id, model_size: model.sizes[0] }));
+  };
+
+  const parseError = async (response) => {
+    const payload = await response.json().catch(() => ({}));
+    if (Array.isArray(payload.detail)) return payload.detail.map((item) => item.msg).join('; ');
+    return payload.detail || `Erro HTTP ${response.status}`;
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
     if (!datasetFile) {
-      alert('Por favor, selecione o arquivo do dataset (.zip).');
+      setSubmitMessage('Selecione um dataset .zip.');
       return;
     }
-
     setIsSubmitting(true);
-    setSubmitMessage('Enviando...');
-
+    setSubmitMessage('Enviando e validando o treinamento...');
     const formData = new FormData();
-    formData.append('train_name', trainName);
-    formData.append('project_name', projectName);
-    formData.append('project_owner', projectOwner);
-    formData.append('epochs', String(epochs));
-    formData.append('batch', String(batch));
-    formData.append('workers', String(workers));
+    Object.entries(metadata).forEach(([key, value]) => formData.append(key, value));
+    Object.entries(config).forEach(([key, value]) => formData.append(key, String(value)));
     formData.append('file', datasetFile);
+    if (argsYaml) formData.append('args_yaml', argsYaml);
 
     try {
-      const res = await fetch(`${API_BASE}/trainings/`, {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.detail || 'Erro no servidor');
-      }
-
-      const data = await res.json();
-      setSubmitMessage(`Treinamento criado com sucesso! Train ID: ${data.train_id}`);
-      setDownloadTrainId(data.train_id);
-      // Limpa o campo de arquivo
+      const response = await fetch(`${API_BASE}/trainings/`, { method: 'POST', body: formData });
+      if (!response.ok) throw new Error(await parseError(response));
+      const data = await response.json();
+      setSubmitMessage(`Treinamento ${data.train_id} criado na fila com o modelo ${data.model}.`);
+      setDownloadTrainId(String(data.train_id));
       setDatasetFile(null);
-      document.getElementById('fileInput').value = '';
-      // A lista de jobs será atualizada automaticamente pelo polling
+      setArgsYaml(null);
+      document.getElementById('dataset-file').value = '';
+      document.getElementById('args-yaml').value = '';
+      await fetchJobs();
     } catch (error) {
-      console.error(error);
       setSubmitMessage(`Erro: ${error.message}`);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // --- Funções de Download ---
-  const downloadFile = (url, filename) => {
-    fetch(url)
-      .then((res) => {
-        if (!res.ok) throw new Error('Download falhou');
-        return res.blob();
-      })
-      .then((blob) => {
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(link.href);
-      })
-      .catch((err) => {
-        console.error(err);
-        alert('Erro ao baixar o arquivo. Verifique se o treinamento foi finalizado.');
-      });
-  };
-
-  const downloadZip = (trainId) => {
-    const url = `${API_BASE}/downloads/zip?train_id=${trainId}`;
-    downloadFile(url, `train_${trainId}_output.zip`);
-  };
-
-  const downloadModel = (trainId) => {
-    const url = `${API_BASE}/downloads/model?train_id=${trainId}`;
-    downloadFile(url, `train_${trainId}_best.pt`);
-  };
-
-  const downloadMetrics = async (trainId) => {
+  const controlJob = async (jobId, action) => {
+    const verb = action === 'cancel' ? 'cancelar' : 'reiniciar';
+    if (!window.confirm(`Deseja ${verb} o job ${jobId}?`)) return;
     try {
-      const res = await fetch(`${API_BASE}/trainings/${trainId}/metrics`);
-      if (!res.ok) throw new Error('Erro ao buscar métricas');
-      const metrics = await res.json();
-      const blob = new Blob([JSON.stringify(metrics, null, 2)], { type: 'application/json' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = `train_${trainId}_metrics.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(link.href);
-    } catch (err) {
-      console.error(err);
-      alert('Erro ao baixar as métricas.');
+      const response = await fetch(`${API_BASE}/jobs/${jobId}/${action}`, { method: 'POST' });
+      if (!response.ok) throw new Error(await parseError(response));
+      await fetchJobs();
+    } catch (error) {
+      window.alert(error.message);
     }
   };
 
-  // --- Renderização da Tabela de Jobs ---
-  const renderJobStatus = (status) => {
-    const colors = {
-      created: '#ffc107',
-      processing: '#17a2b8',
-      finished: '#28a745',
-      cancelled: '#dc3545',
-    };
-    return <span style={{ backgroundColor: colors[status] || '#6c757d', color: '#fff', padding: '4px 8px', borderRadius: '4px', fontSize: '0.8rem' }}>{status}</span>;
+  const downloadFile = async (url, filename) => {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Arquivo indisponível.');
+      const blob = await response.blob();
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch (error) {
+      window.alert(error.message);
+    }
   };
 
+  const formatDate = (date) => date ? new Date(date).toLocaleString('pt-BR') : '—';
+
   return (
-    <div className="container">
+    <main className="container">
       <header className="header">
-        <h1>Transpetro MLOps</h1>
-        <p>Dashboard de Treinamento YOLO</p>
+        <div className="header-copy">
+          <span className="header-eyebrow">CITI-USP · Transpetro</span>
+          <h1>Treinamento de modelos</h1>
+          <p>Configure, acompanhe e recupere experimentos YOLO em um único ambiente.</p>
+        </div>
+        <div className="release-card" aria-label="Versão atual da plataforma">
+          <span className="release-indicator" aria-hidden="true" />
+          <div>
+            <span>Ambiente atual</span>
+            <strong>Release 1</strong>
+          </div>
+        </div>
       </header>
 
-      {/* ==================== 1. SOLICITAÇÃO ==================== */}
       <section className="card">
-        <h2>Solicitar Novo Treinamento</h2>
+        <div className="section-title">
+          <div className="section-copy">
+            <span className="section-kicker">Configuração</span>
+            <h2>Novo treinamento</h2>
+            <p>Defina os dados, o modelo e os parâmetros da execução.</p>
+          </div>
+          <span className="required-note">* Campos obrigatórios</span>
+        </div>
         <form onSubmit={handleSubmit}>
+          <div className="form-section-title">
+            <h3>Identificação e dados</h3>
+            <p>Informações usadas para organizar e localizar o treinamento.</p>
+          </div>
           <div className="form-grid">
+            <Field label="Nome do treinamento *" name="train_name" type="text" value={metadata.train_name} onChange={updateMetadata} required />
+            <Field label="Projeto *" name="project_name" type="text" value={metadata.project_name} onChange={updateMetadata} required />
+            <Field label="Responsável *" name="project_owner" type="text" value={metadata.project_owner} onChange={updateMetadata} required />
             <div className="form-group">
-              <label>Nome do Treinamento *</label>
-              <input type="text" value={trainName} onChange={(e) => setTrainName(e.target.value)} required />
+              <label htmlFor="dataset-file">Dataset (.zip) *</label>
+              <input id="dataset-file" type="file" accept=".zip,application/zip" onChange={(event) => setDatasetFile(event.target.files[0])} required />
             </div>
-            <div className="form-group">
-              <label>Nome do Projeto *</label>
-              <input type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)} required />
-            </div>
-            <div className="form-group">
-              <label>Proprietário (Usuário) *</label>
-              <input type="text" value={projectOwner} onChange={(e) => setProjectOwner(e.target.value)} required />
-            </div>
-            <div className="form-group">
-              <label>Dataset (.zip) *</label>
-              <input id="fileInput" type="file" accept=".zip" onChange={(e) => setDatasetFile(e.target.files[0])} required />
-            </div>
+          </div>
+
+          <div className="form-section-title">
+            <h3>Modelo e parâmetros principais</h3>
+            <p>Configuração essencial utilizada pelo Ultralytics.</p>
           </div>
           <div className="form-grid params-grid">
             <div className="form-group">
-              <label>Épocas (Epochs)</label>
-              <input type="number" value={epochs} onChange={(e) => setEpochs(Number(e.target.value))} min="1" />
+              <label htmlFor="model_version">Família YOLO</label>
+              <select id="model_version" name="model_version" value={config.model_version} onChange={handleModelChange}>
+                {models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+              </select>
             </div>
             <div className="form-group">
-              <label>Batch Size</label>
-              <input type="number" value={batch} onChange={(e) => setBatch(Number(e.target.value))} min="1" />
+              <label htmlFor="model_size">Tamanho da rede</label>
+              <select id="model_size" name="model_size" value={config.model_size} onChange={updateConfig}>
+                {selectedModel.sizes.map((size) => <option key={size} value={size}>{size.toUpperCase()}</option>)}
+              </select>
             </div>
+            <Field label="Épocas" name="epochs" value={config.epochs} onChange={updateConfig} min="1" max="10000" />
+            <Field label="Batch size" name="batch" value={config.batch} onChange={updateConfig} min="1" max="1024" />
+            <Field label="Workers" name="workers" value={config.workers} onChange={updateConfig} min="0" max="128" />
+            <Field label="Tamanho da imagem" name="imgsz" value={config.imgsz} onChange={updateConfig} min="32" max="4096" />
+            <Field label="Dispositivo (0, 0,1 ou cpu)" name="device" type="text" value={config.device} onChange={updateConfig} />
+          </div>
+
+          <details className="advanced-panel">
+            <summary>Hiperparâmetros avançados</summary>
+            <div className="form-grid advanced-grid">
+              <Field label="Paciência" name="patience" value={config.patience} onChange={updateConfig} min="0" />
+              <div className="form-group">
+                <label htmlFor="optimizer">Otimizador</label>
+                <select id="optimizer" name="optimizer" value={config.optimizer} onChange={updateConfig}>
+                  {[
+                    ['auto', 'Automático'], ['SGD', 'SGD'], ['Adam', 'Adam'],
+                    ['AdamW', 'AdamW'], ['NAdam', 'NAdam'], ['RAdam', 'RAdam'],
+                    ['RMSProp', 'RMSProp'],
+                  ].map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+                {config.optimizer === 'auto' && <small className="field-hint">O Ultralytics definirá lr0 e momentum. Escolha um otimizador explícito para controlá-los.</small>}
+              </div>
+              <Field label="Taxa inicial (lr0)" name="lr0" value={config.lr0} onChange={updateConfig} min="0.000001" max="1" step="0.000001" inputMode="decimal" />
+              <Field label="Fator final (lrf)" name="lrf" value={config.lrf} onChange={updateConfig} min="0" max="1" step="0.001" />
+              <Field label="Momentum" name="momentum" value={config.momentum} onChange={updateConfig} min="0" max="1" step="0.001" />
+              <Field label="Weight decay" name="weight_decay" value={config.weight_decay} onChange={updateConfig} min="0" max="1" step="0.0001" />
+              <Field label="Warmup epochs" name="warmup_epochs" value={config.warmup_epochs} onChange={updateConfig} min="0" step="0.1" />
+              <Field label="Fechar mosaic" name="close_mosaic" value={config.close_mosaic} onChange={updateConfig} min="0" />
+              <Field label="Seed" name="seed" value={config.seed} onChange={updateConfig} min="0" />
+              <label className="check-field"><input type="checkbox" name="cos_lr" checked={config.cos_lr} onChange={updateConfig} /> Cosine LR</label>
+              <label className="check-field"><input type="checkbox" name="deterministic" checked={config.deterministic} onChange={updateConfig} /> Execução determinística</label>
+            </div>
+          </details>
+
+          <div className="yaml-row">
             <div className="form-group">
-              <label>Workers</label>
-              <input type="number" value={workers} onChange={(e) => setWorkers(Number(e.target.value))} min="0" />
+              <label htmlFor="args-yaml">args.yaml customizado (opcional)</label>
+              <input id="args-yaml" type="file" accept=".yaml,.yml" onChange={(event) => setArgsYaml(event.target.files[0])} />
+            </div>
+            <div className="yaml-help">
+              <p>Os valores do YAML substituem os campos equivalentes. Caminhos e opções de saída são protegidos pela plataforma.</p>
+              <a className="yaml-example-link" href="/args-example.yaml" download="args.yaml">
+                Baixar YAML de exemplo
+              </a>
             </div>
           </div>
-          <button type="submit" className="btn-primary" disabled={isSubmitting}>
-            {isSubmitting ? 'Enviando...' : 'Iniciar Treinamento'}
-          </button>
-          {submitMessage && <p className="message">{submitMessage}</p>}
+
+          <div className="form-submit-row">
+            <button type="submit" className="btn-primary" disabled={isSubmitting}>
+              {isSubmitting ? 'Criando treinamento…' : 'Adicionar à fila'}
+            </button>
+            {submitMessage && <p className="message" role="status">{submitMessage}</p>}
+          </div>
         </form>
       </section>
 
-      {/* ==================== 2. VISUALIZAÇÃO DOS JOBS ==================== */}
       <section className="card">
-        <div className="section-header">
-          <h2>Status dos Jobs</h2>
-          {/* Botão de atualizar removido – o polling automático cuida disso */}
+        <div className="section-title">
+          <div className="section-copy">
+            <span className="section-kicker">Execução</span>
+            <h2>Jobs</h2>
+            <p>Acompanhe o estado das execuções e acesse seus artefatos.</p>
+          </div>
+          <button className="btn-secondary" onClick={fetchJobs}>Atualizar</button>
         </div>
-        {jobs.length === 0 ? (
-          <p>Nenhum job encontrado. Inicie um treinamento!</p>
-        ) : (
+        {apiWarning && <p className="warning">{apiWarning}</p>}
+        {jobs.length === 0 ? <p className="empty-state">Nenhum job disponível.</p> : (
           <div className="table-responsive">
             <table>
-              <thead>
-                <tr>
-                  <th>Job ID</th>
-                  <th>Train ID</th>
-                  <th>Nome</th>
-                  <th>Projeto</th>
-                  <th>Proprietário</th>
-                  <th>Status</th>
-                  <th>Criado em</th>
-                  <th>Agendado</th>
-                  <th>Finalizado</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {jobs.map((job) => (
+              <thead><tr><th>Job</th><th>Treinamento</th><th>Modelo</th><th>Configuração</th><th>Status</th><th>Início</th><th>Fim</th><th>Ações</th></tr></thead>
+              <tbody>{jobs.map((job) => {
+                const state = STATUS[job.status] || { label: job.status, className: '' };
+                return (
                   <tr key={job.id}>
-                    <td>{job.id}</td>
-                    <td><strong>{job.train_id}</strong></td>
-                    <td>{job.train_name}</td>
-                    <td>{job.project_name}</td>
-                    <td>{job.project_owner}</td>
-                    <td>{renderJobStatus(job.status)}</td>
-                    <td>{new Date(job.created_at).toLocaleString()}</td>
-                    <td>{job.scheduled_at ? new Date(job.scheduled_at).toLocaleString() : '-'}</td>
-                    <td>{job.finished_at ? new Date(job.finished_at).toLocaleString() : '-'}</td>
-                    <td>
-                      {job.status === 'finished' && (
-                        <div className="action-buttons">
-                          <button className="btn-download" onClick={() => downloadZip(job.train_id)} title="Baixar ZIP">📦</button>
-                          <button className="btn-download" onClick={() => downloadModel(job.train_id)} title="Baixar Modelo (.pt)">🤖</button>
-                          <button className="btn-download" onClick={() => downloadMetrics(job.train_id)} title="Baixar Métricas">📊</button>
-                        </div>
-                      )}
-                      {job.status !== 'finished' && <span className="no-action">-</span>}
-                    </td>
+                    <td>#{job.id}</td>
+                    <td><strong>{job.train_name}</strong><small>#{job.train_id} · {job.project_name}<br />{job.project_owner}</small></td>
+                    <td>{job.model_version}{job.model_size}</td>
+                    <td>{job.epochs} ep. · batch {job.batch}<small>{job.workers} workers{job.retry_count ? ` · tentativa ${job.retry_count + 1}` : ''}</small></td>
+                    <td><span className={`status ${state.className}`}>{state.label}</span>{job.error_message && <small className="error-text" title={job.error_message}>{job.error_message}</small>}</td>
+                    <td>{formatDate(job.scheduled_at)}</td><td>{formatDate(job.finished_at)}</td>
+                    <td><div className="action-buttons">
+                      {['queued', 'running'].includes(job.status) && <button className="btn-danger" onClick={() => controlJob(job.id, 'cancel')}>Abortar</button>}
+                      {Boolean(job.config_ready) && ['succeeded', 'failed', 'cancelled'].includes(job.status) && <button className="btn-secondary compact" onClick={() => controlJob(job.id, 'restart')}>Reiniciar</button>}
+                      <a className="btn-link" href={`${API_BASE}/jobs/${job.id}/logs`} target="_blank" rel="noreferrer">Log</a>
+                      {job.status === 'succeeded' && <>
+                        <button className="btn-link" onClick={() => downloadFile(`${API_BASE}/downloads/model?train_id=${job.train_id}`, `train_${job.train_id}_best.pt`)}>Modelo</button>
+                        <button className="btn-link" onClick={() => downloadFile(`${API_BASE}/downloads/zip?train_id=${job.train_id}`, `train_${job.train_id}_output.zip`)}>ZIP</button>
+                      </>}
+                    </div></td>
                   </tr>
-                ))}
-              </tbody>
+                );
+              })}</tbody>
             </table>
           </div>
         )}
       </section>
 
-      {/* ==================== 3. DOWNLOAD ==================== */}
-      <section className="card">
-        <h2>Download por Train ID</h2>
-        <p>Informe o Train ID para baixar os artefatos específicos (disponível apenas para jobs finalizados).</p>
-        <div className="download-by-id">
-          <input
-            type="number"
-            placeholder="Digite o Train ID..."
-            value={downloadTrainId}
-            onChange={(e) => setDownloadTrainId(e.target.value)}
-          />
-          <div className="download-actions">
-            <button className="btn-primary" onClick={() => downloadZip(downloadTrainId)}>📦 Baixar ZIP</button>
-            <button className="btn-primary" onClick={() => downloadModel(downloadTrainId)}>🤖 Baixar Modelo (.pt)</button>
-            <button className="btn-primary" onClick={() => downloadMetrics(downloadTrainId)}>📊 Baixar Métricas</button>
+      <section className="card compact-card">
+        <div className="section-title">
+          <div className="section-copy">
+            <span className="section-kicker">Artefatos</span>
+            <h2>Downloads</h2>
+            <p>Recupere diretamente o modelo final ou todos os arquivos de uma execução.</p>
           </div>
         </div>
-        <p className="hint">* Certifique-se de que o Train ID existe e o job foi finalizado.</p>
+        <div className="download-by-id">
+          <Field label="Train ID" name="download-id" value={downloadTrainId} onChange={(event) => setDownloadTrainId(event.target.value)} min="1" placeholder="Ex.: 42" />
+          <button className="btn-primary" disabled={!downloadTrainId} onClick={() => downloadFile(`${API_BASE}/downloads/model?train_id=${downloadTrainId}`, `train_${downloadTrainId}_best.pt`)}>Baixar modelo</button>
+          <button className="btn-secondary" disabled={!downloadTrainId} onClick={() => downloadFile(`${API_BASE}/downloads/zip?train_id=${downloadTrainId}`, `train_${downloadTrainId}_output.zip`)}>Baixar artefatos</button>
+        </div>
       </section>
 
-      <footer className="footer">
-        <p>Transpetro MLOps - Solução interna de treinamento YOLO</p>
-      </footer>
-    </div>
+      <footer className="footer">CITI-USP · Transpetro · Plataforma de treinamento de modelos</footer>
+    </main>
   );
 }
