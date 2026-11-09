@@ -1,0 +1,12 @@
+# Substitua os nomes pelas classes reais, mantendo os IDs das anotações.
+# Neste exemplo, 0 = capacete e 1 = colete.
+names:
+  0: capacete
+  1: colete
+
+# Com train/images e val/images (ou valid/images), os diretórios são
+# encontrados automaticamente se houver apenas um de cada no ZIP.
+# Para outro layout, indique diretórios relativos à raiz do ZIP:
+# train: images/train
+# val: images/val
+# Não são aceitos URLs, scripts ou listas de imagens em arquivos .txt.

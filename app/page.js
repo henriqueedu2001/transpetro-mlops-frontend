@@ -35,12 +35,24 @@ function Field({ label, name, value, onChange, type = 'number', ...props }) {
   );
 }
 
+function DatasetClasses({ dataset }) {
+  return <div className="dataset-classes">
+    <ul>{dataset.names.map((name, id) => <li key={id}><strong>{id}</strong>: {name}</li>)}</ul>
+    {Object.entries(dataset.validation || {}).map(([split, counts]) => (
+      <p key={split}>{split}: {counts.images} imagem(ns), {counts.objects_per_class.reduce((total, count) => total + count, 0)} objeto(s) anotado(s), {counts.empty_labels} anotação(ões) vazia(s), {counts.missing_labels} ausente(s).</p>
+    ))}
+    {(dataset.warnings || []).map((warning) => <p className="warning" key={warning}>{warning}</p>)}
+  </div>;
+}
+
 export default function Home() {
   const [metadata, setMetadata] = useState({ train_name: '', project_name: '', project_owner: '' });
   const [config, setConfig] = useState(INITIAL_CONFIG);
   const [models, setModels] = useState(FALLBACK_MODELS);
   const [datasetFile, setDatasetFile] = useState(null);
   const [argsYaml, setArgsYaml] = useState(null);
+  const [dataYaml, setDataYaml] = useState(null);
+  const [submittedDataset, setSubmittedDataset] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState('');
@@ -103,12 +115,14 @@ export default function Home() {
       return;
     }
     setIsSubmitting(true);
+    setSubmittedDataset(null);
     setSubmitMessage('Enviando e validando o treinamento...');
     const formData = new FormData();
     Object.entries(metadata).forEach(([key, value]) => formData.append(key, value));
     Object.entries(config).forEach(([key, value]) => formData.append(key, String(value)));
     formData.append('file', datasetFile);
     if (argsYaml) formData.append('args_yaml', argsYaml);
+    if (dataYaml) formData.append('data_yaml', dataYaml);
 
     try {
       const response = await fetch(`${API_BASE}/trainings/`, { method: 'POST', body: formData });
@@ -116,10 +130,13 @@ export default function Home() {
       const data = await response.json();
       setSubmitMessage(`Treinamento ${data.train_id} criado na fila com o modelo ${data.model}.`);
       setDownloadTrainId(String(data.train_id));
+      setSubmittedDataset(data.configuration?.dataset || null);
       setDatasetFile(null);
       setArgsYaml(null);
+      setDataYaml(null);
       document.getElementById('dataset-file').value = '';
       document.getElementById('args-yaml').value = '';
+      document.getElementById('data-yaml').value = '';
       await fetchJobs();
     } catch (error) {
       setSubmitMessage(`Erro: ${error.message}`);
@@ -198,6 +215,18 @@ export default function Home() {
             </div>
           </div>
 
+          <div className="yaml-row">
+            <div className="form-group">
+              <label htmlFor="data-yaml">Classes do dataset (data.yaml)</label>
+              <input id="data-yaml" type="file" accept=".yaml,.yml" onChange={(event) => setDataYaml(event.target.files[0] || null)} aria-describedby="data-yaml-help" />
+            </div>
+            <div className="yaml-help" id="data-yaml-help">
+              <p>Defina os nomes na ordem dos IDs das anotações, começando em 0. Obrigatório aqui ou dentro do ZIP. Limite: 64 KiB.</p>
+              <p>Use names e, se necessário, train e val com diretórios relativos ao YAML (ou à raiz do ZIP no envio separado). Definições conflitantes serão recusadas.</p>
+              <a className="yaml-example-link" href="/data-example.yaml" download="data.yaml">Baixar exemplo de classes</a>
+            </div>
+          </div>
+
           <div className="form-section-title">
             <h3>Modelo e parâmetros principais</h3>
             <p>Configuração essencial utilizada pelo Ultralytics.</p>
@@ -269,6 +298,10 @@ export default function Home() {
             {submitMessage && <p className="message" role="status">{submitMessage}</p>}
           </div>
         </form>
+        {submittedDataset && <div className="dataset-summary" role="status">
+          <strong>Classes validadas para o treinamento criado</strong>
+          <DatasetClasses dataset={submittedDataset} />
+        </div>}
       </section>
 
       <section className="card">
@@ -292,7 +325,9 @@ export default function Home() {
                     <td>#{job.id}</td>
                     <td><strong>{job.train_name}</strong><small>#{job.train_id} · {job.project_name}<br />{job.project_owner}</small></td>
                     <td>{job.model_version}{job.model_size}</td>
-                    <td>{job.epochs} ep. · batch {job.batch}<small>{job.workers} workers{job.retry_count ? ` · tentativa ${job.retry_count + 1}` : ''}</small></td>
+                    <td>{job.epochs} ep. · batch {job.batch}<small>{job.workers} workers{job.retry_count ? ` · tentativa ${job.retry_count + 1}` : ''}</small>
+                      {job.dataset?.names ? <details className="dataset-details"><summary>{job.dataset.nc} classe(s)</summary><DatasetClasses dataset={job.dataset} /></details> : <small>Classes não registradas</small>}
+                    </td>
                     <td><span className={`status ${state.className}`}>{state.label}</span>{job.error_message && <small className="error-text" title={job.error_message}>{job.error_message}</small>}</td>
                     <td>{formatDate(job.scheduled_at)}</td><td>{formatDate(job.finished_at)}</td>
                     <td><div className="action-buttons">
