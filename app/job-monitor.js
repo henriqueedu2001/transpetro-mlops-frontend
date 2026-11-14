@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { appendLog, formatDuration, initialLog, logText } from './monitor-state.mjs';
+import JobResults from './job-results';
 
 const STAGES = {
   queued: 'Na fila', starting: 'Iniciando processo', preparing: 'Preparando treinamento',
@@ -101,6 +102,7 @@ export default function JobMonitor({ jobId, apiBase, onClose }) {
       </li>)}</ul> : <p className="monitor-note">Ainda não registrados nesta tentativa.</p>}
       {progress?.expected_devices > devices.length && <p className="monitor-note">{devices.length} de {progress.expected_devices} processo(s) registraram o dispositivo.</p>}
     </div>
+    {progress && <JobResults jobId={jobId} apiBase={apiBase} currentAttempt={progress.attempt} currentStatus={progress.status} />}
     <div className="monitor-log-toolbar">
       <h3>Log desta tentativa</h3>
       <label><input type="checkbox" checked={followLog} onChange={(event) => setFollowLog(event.target.checked)} /> Acompanhar últimas linhas</label>

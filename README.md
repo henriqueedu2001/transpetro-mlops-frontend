@@ -27,7 +27,17 @@ O backend valida detecção YOLO com splits por diretórios; manifestos `.txt` n
 - Reinícios limpam o progresso exibido. O log visível mantém até 120 mil caracteres, com acesso ao arquivo completo da tentativa.
 - Consultas sequenciais a cada dois segundos durante a execução e cinco segundos após o término; fechar ou trocar de job cancela a consulta anterior.
 
-Fase 2 aprovada em 14/11/2026. Gráficos, imagens e resultados finais permanecem na fase 3, ainda não executada. A API e o scheduler devem carregar o código correspondente para disponibilizar a telemetria.
+Fase 2 aprovada em 14/11/2026. API e scheduler precisam carregar o código correspondente para disponibilizar a telemetria.
+
+## Release 2 — fase 3
+
+- Resultados da tentativa atual, histórico e arquivos legados selecionados explicitamente em “Acompanhar”. Reinícios preservam os resultados anteriores.
+- Avaliação final de `best.pt` separada da última época do CSV; valores ausentes não aparecem como zero.
+- Gráficos de precisão, recall, mAP e perdas, tabela das últimas 25 épocas e galeria de imagens originais do YOLO.
+- Downloads de CSV, modelo e ZIP da origem selecionada. ZIP inclui resultados/configuração/registros reconhecidos, sem dataset original; limite de 2 GiB. Pesos e pacote exigem tentativa encerrada.
+- Resultados atualizam a cada cinco segundos durante o treino e dez após término. O seletor mostra as últimas 100 tentativas; a API mantém acesso às anteriores. Limites de CSV e catálogo estão na documentação do backend.
+
+Em 14/11/2026, Henrique autorizou commit e push antes de sua revisão manual, que permanece pendente. As três fases estão implementadas; serviços ativos não foram reiniciados. O roteiro de validação está em `docs/release-2.md` no backend.
 
 ## Execução
 
@@ -48,7 +58,7 @@ Neste ambiente, use `job-guard` e o caminho do Node/npm instalado quando o guard
 
 ```bash
 job-guard submit --name mlops-frontend-build --cwd "$PWD" -- npm run build -- --webpack
-job-guard submit --name mlops-frontend-tests --cwd "$PWD" -- node --test tests/monitor-state.test.mjs
+job-guard submit --name mlops-frontend-tests --cwd "$PWD" -- node --test tests/monitor-state.test.mjs tests/results-state.test.mjs
 ```
 
-A interface compilada foi inspecionada com API isolada e metadados de um treino sintético real com três classes, incluindo quatro épocas na GPU. Cinco testes verificam acumulação e limites de logs, reinício do fluxo, normalização de texto e duração indisponível. As alterações locais anteriores de proxy/ngrok são mantidas fora dos commits das fases 1 e 2.
+A interface compilada foi inspecionada com API isolada e resultados de treino sintético real com três classes, incluindo GPU, cancelamento, reinício, histórico e legado. Dez testes cobrem acumulação/limites de logs, reinício, duração indisponível, seleção de origem, valores ausentes e geometria dos gráficos. O build webpack passou. As alterações locais anteriores de proxy/ngrok são mantidas fora dos commits das três fases.

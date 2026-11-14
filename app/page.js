@@ -162,7 +162,7 @@ export default function Home() {
   const downloadFile = async (url, filename) => {
     try {
       const response = await fetch(url);
-      if (!response.ok) throw new Error('Arquivo indisponível.');
+      if (!response.ok) throw new Error(await parseError(response));
       const blob = await response.blob();
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
@@ -188,7 +188,7 @@ export default function Home() {
           <span className="release-indicator" aria-hidden="true" />
           <div>
             <span>Ambiente atual</span>
-            <strong>Release 1</strong>
+            <strong>Release 2</strong>
           </div>
         </div>
       </header>
@@ -357,7 +357,7 @@ export default function Home() {
           <div className="section-copy">
             <span className="section-kicker">Artefatos</span>
             <h2>Downloads</h2>
-            <p>Recupere diretamente o modelo final ou todos os arquivos de uma execução.</p>
+            <p>Baixe o modelo ou o pacote de resultados da tentativa atual. Para histórico e arquivos legados, use Acompanhar.</p>
           </div>
         </div>
         <div className="download-by-id">
