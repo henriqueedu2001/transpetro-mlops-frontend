@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import './styles.css';
+import JobMonitor from './job-monitor';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 const FALLBACK_MODELS = [
@@ -58,6 +59,7 @@ export default function Home() {
   const [submitMessage, setSubmitMessage] = useState('');
   const [apiWarning, setApiWarning] = useState('');
   const [downloadTrainId, setDownloadTrainId] = useState('');
+  const [monitoredJobId, setMonitoredJobId] = useState(null);
 
   const selectedModel = useMemo(
     () => models.find((model) => model.id === config.model_version) || models[0],
@@ -331,6 +333,7 @@ export default function Home() {
                     <td><span className={`status ${state.className}`}>{state.label}</span>{job.error_message && <small className="error-text" title={job.error_message}>{job.error_message}</small>}</td>
                     <td>{formatDate(job.scheduled_at)}</td><td>{formatDate(job.finished_at)}</td>
                     <td><div className="action-buttons">
+                      <button className="btn-secondary compact" onClick={() => setMonitoredJobId(job.id)}>Acompanhar</button>
                       {['queued', 'running'].includes(job.status) && <button className="btn-danger" onClick={() => controlJob(job.id, 'cancel')}>Abortar</button>}
                       {Boolean(job.config_ready) && ['succeeded', 'failed', 'cancelled'].includes(job.status) && <button className="btn-secondary compact" onClick={() => controlJob(job.id, 'restart')}>Reiniciar</button>}
                       <a className="btn-link" href={`${API_BASE}/jobs/${job.id}/logs`} target="_blank" rel="noreferrer">Log</a>
@@ -346,6 +349,8 @@ export default function Home() {
           </div>
         )}
       </section>
+
+      {monitoredJobId !== null && <JobMonitor key={monitoredJobId} jobId={monitoredJobId} apiBase={API_BASE} onClose={() => setMonitoredJobId(null)} />}
 
       <section className="card compact-card">
         <div className="section-title">
