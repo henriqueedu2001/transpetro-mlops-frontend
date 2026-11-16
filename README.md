@@ -37,7 +37,7 @@ Fase 2 aprovada em 14/11/2026. API e scheduler precisam carregar o código corre
 - Downloads de CSV, modelo e ZIP da origem selecionada. ZIP inclui resultados/configuração/registros reconhecidos, sem dataset original; limite de 2 GiB. Pesos e pacote exigem tentativa encerrada.
 - Resultados atualizam a cada cinco segundos durante o treino e dez após término. O seletor mostra as últimas 100 tentativas; a API mantém acesso às anteriores. Limites de CSV e catálogo estão na documentação do backend.
 
-Em 14/11/2026, Henrique autorizou commit e push antes de sua revisão manual, que permanece pendente. As três fases estão implementadas; serviços ativos não foram reiniciados. O roteiro de validação está em `docs/release-2.md` no backend.
+Em 14/11/2026, Henrique autorizou commit e push antes da revisão manual. Em 16/11/2026, aprovou o resultado local e autorizou o deploy. As três fases estão implementadas. O roteiro de validação está em `docs/release-2.md` no backend.
 
 ## Execução
 
