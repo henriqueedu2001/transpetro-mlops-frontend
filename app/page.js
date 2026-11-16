@@ -181,7 +181,7 @@ export default function Home() {
       <header className="header">
         <div className="header-copy">
           <span className="header-eyebrow">CITI-USP · Transpetro</span>
-          <h1>Treinamento de modelos</h1>
+          <h1>MLOps Tool</h1>
           <p>Configure, acompanhe e recupere experimentos YOLO em um único ambiente.</p>
         </div>
         <div className="release-card" aria-label="Versão atual da plataforma">
